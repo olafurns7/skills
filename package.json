@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check:feature-tasks": "node --check .agents/skills/feature-tasks/scripts/generate-task-graph.mjs"
+    "check:feature-tasks": "node --check .agents/skills/feature-tasks/scripts/generate-task-graph.mjs",
+    "check:feature-tasks-work": "node --check .agents/skills/feature-tasks-work/scripts/taskctl.mjs"
   },
   "dependencies": {
     "yaml": "^2.8.1"

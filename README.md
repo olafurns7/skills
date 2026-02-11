@@ -12,6 +12,7 @@ This repository uses the open `.agents/skills` layout so it works with Codex, Cl
   - Generates deterministic `task.graph.json`
 - `feature-tasks-work`
   - Runs orchestration from `SPEC.md` + planning artifacts
+  - Uses `scripts/taskctl.mjs` for status updates and prompt assembly
   - Delegates tasks to collaborators/subagents with a required response contract
   - Maintains resumable execution state in `task.status.json`
 
@@ -25,6 +26,7 @@ This repository uses the open `.agents/skills` layout so it works with Codex, Cl
     agents/openai.yaml
   feature-tasks-work/
     SKILL.md
+    scripts/taskctl.mjs
     agents/openai.yaml
 ```
 
@@ -128,6 +130,21 @@ Validation failures include:
 - Dependency cycles
 
 ## `feature-tasks-work`: orchestration protocol
+
+Prefer a CLI-first workflow (instead of manual edits to `task.status.json`):
+
+```bash
+TASKCTL=".agents/skills/feature-tasks-work/scripts/taskctl"
+```
+
+Core orchestration loop:
+
+```bash
+"$TASKCTL" init <title-slug>
+"$TASKCTL" dispatch <title-slug> --owner <owner-id> --json
+"$TASKCTL" complete <title-slug> <task-id> --result done --summary "..." --files a,b --tests c,d --next TASK-XYZ
+"$TASKCTL" status <title-slug> --json
+```
 
 Execution flow:
 
