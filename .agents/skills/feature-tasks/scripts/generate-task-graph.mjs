@@ -5,122 +5,248 @@ import fs from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 
-function coerceString(value, label, { allowEmpty = true } = {}) {
-  if (value === undefined || value === null) {
-    if (allowEmpty) return "";
-    throw new Error(`${label} is required`);
-  }
+const SCHEMA_VERSION = 2;
+const PRIORITIES = new Set(["low", "medium", "high", "critical"]);
+const OWNER_TYPES = new Set(["frontend", "backend", "infra", "docs", "qa", "fullstack"]);
 
-  const text = String(value).trim();
-  if (!text && !allowEmpty) {
-    throw new Error(`${label} is required`);
-  }
+function fail(message) {
+  throw new Error(message);
+}
 
+function normalizeString(value) {
+  return value === undefined || value === null ? "" : String(value).trim();
+}
+
+function parseRequiredString(value, label, errors) {
+  const text = normalizeString(value);
+  if (!text) {
+    errors.push(`${label} is required`);
+    return "";
+  }
   return text;
 }
 
-function coerceIdentifier(value, label) {
-  return coerceString(value, label, { allowEmpty: false });
+function parseOptionalString(value) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
 }
 
-function coerceTaskList(value, label) {
-  if (value === undefined || value === null) return [];
-
-  const items = Array.isArray(value) ? value : [value];
-  const deduped = [];
-  const seen = new Set();
-
-  for (const item of items) {
-    const id = coerceIdentifier(item, label);
-    if (seen.has(id)) continue;
-    seen.add(id);
-    deduped.push(id);
+function parseRequiredStringList(value, label, errors, { minItems = 1 } = {}) {
+  if (value === undefined || value === null) {
+    errors.push(`${label} is required`);
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    errors.push(`${label} must be an array of non-empty strings`);
+    return [];
   }
 
+  const items = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const item = normalizeString(value[i]);
+    if (!item) {
+      errors.push(`${label}[${i}] must be a non-empty string`);
+      continue;
+    }
+    items.push(item);
+  }
+
+  if (items.length < minItems) {
+    errors.push(`${label} must contain at least ${minItems} item(s)`);
+  }
+
+  return items;
+}
+
+function parseIdentifierList(value, label, errors, { required = true } = {}) {
+  if (value === undefined || value === null) {
+    if (required) {
+      errors.push(`${label} is required`);
+    }
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    errors.push(`${label} must be an array of task IDs`);
+    return [];
+  }
+
+  const deduped = [];
+  const seen = new Set();
+  for (let i = 0; i < value.length; i += 1) {
+    const taskId = normalizeString(value[i]);
+    if (!taskId) {
+      errors.push(`${label}[${i}] must be a non-empty task ID`);
+      continue;
+    }
+    if (seen.has(taskId)) continue;
+    seen.add(taskId);
+    deduped.push(taskId);
+  }
   return deduped;
 }
 
-function assertUniqueIds(items, key, label) {
+function assertUniqueIds(items, key, label, errors) {
   const seen = new Set();
   const duplicates = new Set();
 
   for (const item of items) {
     const id = item[key];
+    if (!id) continue;
     if (seen.has(id)) duplicates.add(id);
     seen.add(id);
   }
 
   if (duplicates.size > 0) {
-    throw new Error(`${label} contains duplicate IDs: ${Array.from(duplicates).join(", ")}`);
+    errors.push(`${label} contains duplicate IDs: ${Array.from(duplicates).sort().join(", ")}`);
   }
 }
 
 function parseTasksYaml(content) {
   let document;
   try {
-    document = parseYaml(content.replace(/^\uFEFF/, "")) ?? {};
+    document = parseYaml(content.replace(/^\uFEFF/, ""));
   } catch (error) {
-    throw new Error(`Failed to parse tasks.yaml: ${error.message}`);
+    fail(`Failed to parse tasks.yaml: ${error.message}`);
   }
 
-  if (typeof document !== "object" || document === null) {
-    throw new Error("tasks.yaml must define an object root");
+  if (typeof document !== "object" || document === null || Array.isArray(document)) {
+    fail("tasks.yaml must define an object root");
   }
 
-  const rawVersion = Number(document.version ?? 1);
-  const meta = {
-    version: Number.isFinite(rawVersion) && rawVersion > 0 ? Math.floor(rawVersion) : 1,
-    project: coerceString(document.project ?? "unknown", "project"),
+  const errors = [];
+
+  const rawVersion = Number(document.version);
+  const version = Number.isInteger(rawVersion) ? rawVersion : NaN;
+  if (version !== SCHEMA_VERSION) {
+    errors.push(`version must be ${SCHEMA_VERSION}`);
+  }
+
+  const project = parseRequiredString(document.project, "project", errors);
+
+  const rawTasks = document.tasks;
+  if (!Array.isArray(rawTasks)) {
+    errors.push("tasks is required and must be an array");
+  } else if (rawTasks.length === 0) {
+    errors.push("tasks must contain at least one task");
+  }
+
+  const tasks = Array.isArray(rawTasks)
+    ? rawTasks.map((task, index) => {
+        const fieldErrors = [];
+        if (typeof task !== "object" || task === null || Array.isArray(task)) {
+          errors.push(`tasks[${index}] must be an object`);
+          return {
+            id: `tasks[${index}]`,
+            phase: "",
+            priority: "",
+            title: "",
+            blocked_by: [],
+            acceptance: [],
+            deliverables: [],
+            owner_type: "",
+            estimate: "",
+            notes: "",
+          };
+        }
+
+        const id = parseRequiredString(task.id, `tasks[${index}].id`, fieldErrors);
+        const phase = parseRequiredString(task.phase, `tasks[${index}].phase`, fieldErrors);
+        const priority = parseRequiredString(task.priority, `tasks[${index}].priority`, fieldErrors);
+        if (priority && !PRIORITIES.has(priority)) {
+          fieldErrors.push(
+            `tasks[${index}].priority must be one of: ${Array.from(PRIORITIES).join(", ")}`,
+          );
+        }
+
+        const title = parseRequiredString(task.title, `tasks[${index}].title`, fieldErrors);
+        const blockedBy = parseIdentifierList(task.blocked_by, `tasks[${index}].blocked_by`, fieldErrors, {
+          required: true,
+        });
+        const acceptance = parseRequiredStringList(task.acceptance, `tasks[${index}].acceptance`, fieldErrors, {
+          minItems: 1,
+        });
+        const deliverables = parseRequiredStringList(
+          task.deliverables,
+          `tasks[${index}].deliverables`,
+          fieldErrors,
+          { minItems: 1 },
+        );
+
+        const ownerType = parseRequiredString(task.owner_type, `tasks[${index}].owner_type`, fieldErrors);
+        if (ownerType && !OWNER_TYPES.has(ownerType)) {
+          fieldErrors.push(
+            `tasks[${index}].owner_type must be one of: ${Array.from(OWNER_TYPES).join(", ")}`,
+          );
+        }
+
+        const estimate = parseRequiredString(task.estimate, `tasks[${index}].estimate`, fieldErrors);
+        const notes = parseOptionalString(task.notes);
+
+        if (fieldErrors.length > 0) {
+          const taskKey = id || `tasks[${index}]`;
+          errors.push(`[${taskKey}] ${fieldErrors.join("; ")}`);
+        }
+
+        return {
+          id,
+          phase,
+          priority,
+          title,
+          blocked_by: blockedBy,
+          acceptance,
+          deliverables,
+          owner_type: ownerType,
+          estimate,
+          notes,
+        };
+      })
+    : [];
+
+  const parseGroup = (key, label) => {
+    const raw = document[key];
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) {
+      errors.push(`${key} must be an array when provided`);
+      return [];
+    }
+
+    return raw.map((entry, index) => {
+      const fieldErrors = [];
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        errors.push(`${key}[${index}] must be an object`);
+        return { id: `${label}[${index}]`, tasks: [] };
+      }
+
+      const id = parseRequiredString(entry.id, `${key}[${index}].id`, fieldErrors);
+      const taskIds = parseIdentifierList(entry.tasks, `${key}[${index}].tasks`, fieldErrors, {
+        required: true,
+      });
+
+      if (fieldErrors.length > 0) {
+        errors.push(`[${id || `${label}[${index}]`}] ${fieldErrors.join("; ")}`);
+      }
+
+      return { id, tasks: taskIds };
+    });
   };
 
-  const rawTasks = Array.isArray(document.tasks) ? document.tasks : [];
-  const tasks = rawTasks.map((task, index) => {
-    if (typeof task !== "object" || task === null) {
-      throw new Error(`tasks[${index}] must be an object`);
-    }
+  const criticalPaths = parseGroup("critical_paths", "critical_paths");
+  const parallelWindows = parseGroup("parallel_windows", "parallel_windows");
 
-    return {
-      id: coerceIdentifier(task.id, `tasks[${index}].id`),
-      phase: coerceString(task.phase ?? "", `tasks[${index}].phase`),
-      priority: coerceString(task.priority ?? "", `tasks[${index}].priority`),
-      title: coerceString(task.title ?? "", `tasks[${index}].title`),
-      blocked_by: coerceTaskList(task.blocked_by, `tasks[${index}].blocked_by`),
-    };
-  });
+  assertUniqueIds(tasks, "id", "tasks", errors);
+  assertUniqueIds(criticalPaths, "id", "critical_paths", errors);
+  assertUniqueIds(parallelWindows, "id", "parallel_windows", errors);
 
-  const rawCriticalPaths = Array.isArray(document.critical_paths)
-    ? document.critical_paths
-    : [];
-  const criticalPaths = rawCriticalPaths.map((criticalPath, index) => {
-    if (typeof criticalPath !== "object" || criticalPath === null) {
-      throw new Error(`critical_paths[${index}] must be an object`);
-    }
+  if (errors.length > 0) {
+    fail(`Invalid tasks.yaml:\n- ${errors.join("\n- ")}`);
+  }
 
-    return {
-      id: coerceIdentifier(criticalPath.id, `critical_paths[${index}].id`),
-      tasks: coerceTaskList(criticalPath.tasks, `critical_paths[${index}].tasks`),
-    };
-  });
-
-  const rawParallelWindows = Array.isArray(document.parallel_windows)
-    ? document.parallel_windows
-    : [];
-  const parallelWindows = rawParallelWindows.map((parallelWindow, index) => {
-    if (typeof parallelWindow !== "object" || parallelWindow === null) {
-      throw new Error(`parallel_windows[${index}] must be an object`);
-    }
-
-    return {
-      id: coerceIdentifier(parallelWindow.id, `parallel_windows[${index}].id`),
-      tasks: coerceTaskList(parallelWindow.tasks, `parallel_windows[${index}].tasks`),
-    };
-  });
-
-  assertUniqueIds(tasks, "id", "tasks");
-  assertUniqueIds(criticalPaths, "id", "critical_paths");
-  assertUniqueIds(parallelWindows, "id", "parallel_windows");
-
-  return { meta, tasks, criticalPaths, parallelWindows };
+  return {
+    meta: { version, project },
+    tasks,
+    criticalPaths,
+    parallelWindows,
+  };
 }
 
 function detectDependencyCycles(tasks) {
@@ -161,50 +287,44 @@ function detectDependencyCycles(tasks) {
 
 function validateGraphParity(parsed) {
   const taskIds = new Set(parsed.tasks.map((task) => task.id));
-  const missingBlockedBy = new Set();
-  const selfDependencyErrors = [];
+  const errors = [];
 
   for (const task of parsed.tasks) {
+    const taskErrors = [];
+
     for (const dependency of task.blocked_by) {
       if (dependency === task.id) {
-        selfDependencyErrors.push(`Task ${task.id} cannot depend on itself`);
+        taskErrors.push("cannot depend on itself");
+      } else if (!taskIds.has(dependency)) {
+        taskErrors.push(`references missing dependency ${dependency}`);
       }
-      if (!taskIds.has(dependency)) {
-        missingBlockedBy.add(dependency);
-      }
+    }
+
+    if (taskErrors.length > 0) {
+      errors.push(`[${task.id}] ${taskErrors.join("; ")}`);
     }
   }
 
-  const pathErrors = [];
   for (const criticalPath of parsed.criticalPaths) {
     for (const taskId of criticalPath.tasks) {
       if (!taskIds.has(taskId)) {
-        pathErrors.push(`critical_paths.${criticalPath.id} references missing task ${taskId}`);
+        errors.push(`[critical_paths.${criticalPath.id}] references missing task ${taskId}`);
       }
     }
   }
 
-  const windowErrors = [];
   for (const parallelWindow of parsed.parallelWindows) {
     for (const taskId of parallelWindow.tasks) {
       if (!taskIds.has(taskId)) {
-        windowErrors.push(`parallel_windows.${parallelWindow.id} references missing task ${taskId}`);
+        errors.push(`[parallel_windows.${parallelWindow.id}] references missing task ${taskId}`);
       }
     }
   }
 
-  const cycleErrors = detectDependencyCycles(parsed.tasks);
-
-  const errors = [
-    ...Array.from(missingBlockedBy).map((dependency) => `Unresolved dependency: ${dependency}`),
-    ...selfDependencyErrors,
-    ...pathErrors,
-    ...windowErrors,
-    ...cycleErrors,
-  ];
+  errors.push(...detectDependencyCycles(parsed.tasks));
 
   if (errors.length > 0) {
-    throw new Error(`Invalid tasks.yaml - graph parity failed:\n${errors.join("\n")}`);
+    fail(`Invalid tasks.yaml - graph parity failed:\n- ${errors.join("\n- ")}`);
   }
 }
 
@@ -216,10 +336,12 @@ function buildGraph(parsed) {
     phase: task.phase,
     priority: task.priority,
     title: task.title,
+    owner_type: task.owner_type,
+    estimate: task.estimate,
   }));
 
-  const edges = [];
   const edgeSet = new Set();
+  const edges = [];
 
   for (const task of parsed.tasks) {
     for (const dependency of task.blocked_by) {
@@ -230,7 +352,13 @@ function buildGraph(parsed) {
     }
   }
 
+  edges.sort((a, b) => {
+    if (a.from !== b.from) return a.from.localeCompare(b.from);
+    return a.to.localeCompare(b.to);
+  });
+
   return {
+    schema_version: SCHEMA_VERSION,
     version: parsed.meta.version,
     project: parsed.meta.project,
     generated_from: "tasks.yaml",
@@ -276,22 +404,21 @@ function main() {
     process.exit(1);
   }
 
-  const content = fs.readFileSync(inputPath, "utf8");
-  const parsed = parseTasksYaml(content);
+  try {
+    const content = fs.readFileSync(inputPath, "utf8");
+    const parsed = parseTasksYaml(content);
+    const graph = buildGraph(parsed);
 
-  if (parsed.tasks.length === 0) {
-    console.error("No tasks found in tasks.yaml");
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, `${JSON.stringify(graph, null, 2)}\n`);
+
+    console.info(
+      `Generated ${path.relative(cwd, outputPath)} (${graph.nodes.length} nodes, ${graph.edges.length} edges)`,
+    );
+  } catch (error) {
+    console.error(error.message);
     process.exit(1);
   }
-
-  const graph = buildGraph(parsed);
-
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, `${JSON.stringify(graph, null, 2)}\n`);
-
-  console.info(
-    `Generated ${path.relative(cwd, outputPath)} (${graph.nodes.length} nodes, ${graph.edges.length} edges)`,
-  );
 }
 
 main();
