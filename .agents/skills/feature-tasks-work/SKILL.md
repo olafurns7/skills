@@ -11,7 +11,7 @@ Execute planned work as an orchestrator with deterministic delegation and status
 
 Use the bundled CLI for orchestration state and prompt assembly.
 
-- Do not hand-edit `planning/<title-slug>/task.status.json` during normal execution.
+- Do not hand-edit `planning/<title-slug>/task.db` or `planning/<title-slug>/task.status.json` during normal execution.
 - Use `taskctl` commands for queue reads, task lifecycle transitions, and delegation prompts.
 - Hand edits are recovery-only when the status file is corrupted.
 
@@ -21,12 +21,18 @@ Set a command alias before orchestration:
 TASKCTL="<path-to-skill>/scripts/taskctl"
 ```
 
+Runtime behavior:
+
+- On macOS arm64, `scripts/taskctl` prefers the compiled `taskctl-darwin-arm64` binary.
+- Otherwise it falls back to `bun taskctl.mjs`.
+
 ## Protocol
 
 1. Start orchestration with minimal prior context. If your agent supports session reset, use it.
 2. Resolve `title-slug` (for example `add-new-payment-method`) under `planning/`.
 3. Run `"$TASKCTL" init <title-slug>`.
-   - Loads or creates `task.status.json`.
+   - Loads or creates `task.db`.
+   - Exports `task.status.json` snapshot for compatibility.
    - Resets stale `in_progress` entries to `todo`.
    - Re-evaluates blocked tasks whose blockers are now done.
 4. Discover dispatchable work with `"$TASKCTL" ready <title-slug> --json`.
@@ -113,7 +119,7 @@ Treat missing required fields as protocol failure and apply retry policy.
 
 ## task.status.json schema
 
-Default path: `planning/<title-slug>/task.status.json`.
+Default path: `planning/<title-slug>/task.status.json` (exported snapshot from `task.db`).
 
 ```json
 {

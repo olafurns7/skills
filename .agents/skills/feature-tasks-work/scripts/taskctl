@@ -2,4 +2,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-exec node "$SCRIPT_DIR/taskctl.mjs" "$@"
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+COMPILED="$SCRIPT_DIR/taskctl-darwin-arm64"
+
+if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" && -x "$COMPILED" ]]; then
+  exec "$COMPILED" "$@"
+fi
+
+if command -v bun >/dev/null 2>&1; then
+  exec bun "$SCRIPT_DIR/taskctl.mjs" "$@"
+fi
+
+echo "taskctl: no compiled binary for $OS/$ARCH and Bun is not installed." >&2
+echo "Install Bun or use macOS arm64 binary builds for this skill." >&2
+exit 1

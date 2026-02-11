@@ -12,9 +12,9 @@ This repository uses the open `.agents/skills` layout so it works with Codex, Cl
   - Generates deterministic `task.graph.json`
 - `feature-tasks-work`
   - Runs orchestration from `SPEC.md` + planning artifacts
-  - Uses `scripts/taskctl.mjs` for status updates and prompt assembly
+  - Uses `scripts/taskctl` (bundled from TypeScript) for status updates and prompt assembly
   - Delegates tasks to collaborators/subagents with a required response contract
-  - Maintains resumable execution state in `task.status.json`
+  - Maintains resumable execution state in `task.db` and exports `task.status.json` snapshots
 
 ## Repository structure
 
@@ -26,11 +26,22 @@ This repository uses the open `.agents/skills` layout so it works with Codex, Cl
     agents/openai.yaml
   feature-tasks-work/
     SKILL.md
+    scripts/taskctl
     scripts/taskctl.mjs
+    scripts/taskctl-darwin-arm64
     agents/openai.yaml
+src/
+  generate-task-graph.ts
+  index.ts
 ```
 
 ## Install with skills.sh
+
+Install all skills from this repo:
+
+```bash
+npx skills add olafurns7/skills --all
+```
 
 List available skills from this repo:
 
@@ -55,6 +66,29 @@ Install from local checkout:
 npx skills@latest add . --skill feature-tasks --skill feature-tasks-work -y
 ```
 
+## Build scripts
+
+TypeScript sources live in `src/` and are bundled with Bun into committed artifacts under `.agents/skills/*/scripts/`.
+
+For `feature-tasks-work`, build produces:
+
+- `scripts/taskctl.mjs` (Bun fallback script)
+- `scripts/taskctl-darwin-arm64` (standalone executable; no Bun required on macOS arm64)
+- `scripts/taskctl` launcher wrapper
+
+```bash
+npm run build
+```
+
+Individual build commands:
+
+```bash
+npm run build:feature-tasks
+npm run build:feature-tasks-work
+npm run build:feature-tasks-work:script
+npm run build:feature-tasks-work:darwin-arm64
+```
+
 ## `feature-tasks`: strict planning schema
 
 Planning artifacts are stored per feature under:
@@ -62,7 +96,8 @@ Planning artifacts are stored per feature under:
 - `planning/<title-slug>/SPEC.md`
 - `planning/<title-slug>/tasks.yaml`
 - `planning/<title-slug>/task.graph.json`
-- `planning/<title-slug>/task.status.json`
+- `planning/<title-slug>/task.db`
+- `planning/<title-slug>/task.status.json` (exported snapshot)
 
 `tasks.yaml` uses strict schema v2. `version` must be `2`.
 
@@ -131,10 +166,22 @@ Validation failures include:
 
 ## `feature-tasks-work`: orchestration protocol
 
-Prefer a CLI-first workflow (instead of manual edits to `task.status.json`):
+Prefer a CLI-first workflow (instead of manual edits to state artifacts):
 
 ```bash
 TASKCTL=".agents/skills/feature-tasks-work/scripts/taskctl"
+```
+
+Runtime selection in `scripts/taskctl`:
+
+- macOS arm64 + compiled binary present: runs `taskctl-darwin-arm64`
+- otherwise: falls back to `bun taskctl.mjs`
+- if neither is available: exits with a clear install message
+
+If macOS Gatekeeper blocks execution after download/transfer, clear quarantine on the installed file:
+
+```bash
+xattr -d com.apple.quarantine .agents/skills/feature-tasks-work/scripts/taskctl-darwin-arm64
 ```
 
 Core orchestration loop:
@@ -151,11 +198,11 @@ Execution flow:
 1. Reset context (`/clear` or `/new` where available).
 2. Resolve `title-slug` and work inside `planning/<title-slug>/`.
 3. Preflight: require readable `planning/<title-slug>/SPEC.md` and `planning/<title-slug>/tasks.yaml`; use `planning/<title-slug>/task.graph.json` if present.
-4. Initialize/load `planning/<title-slug>/task.status.json`.
+4. Initialize/load `planning/<title-slug>/task.db` and export `planning/<title-slug>/task.status.json`.
 5. Dispatch only unblocked `todo` tasks.
 6. Delegate each task to collaborator/subagent.
 7. Run independent tasks in parallel when safe.
-8. Update `task.status.json` after every attempt.
+8. Update `task.db` after every attempt and export `task.status.json`.
 9. Retry once for transient/protocol failures; then mark `blocked` and continue.
 10. Finish when all tasks are `done` or terminal `blocked`.
 
@@ -171,7 +218,7 @@ Required delegation response fields:
 
 ## `task.status.json` contract
 
-Default path: `planning/<title-slug>/task.status.json`.
+Default path: `planning/<title-slug>/task.status.json` (exported compatibility snapshot from `task.db`).
 
 Top-level fields:
 
