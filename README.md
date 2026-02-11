@@ -55,6 +55,13 @@ npx skills@latest add . --skill feature-tasks --skill feature-tasks-work -y
 
 ## `feature-tasks`: strict planning schema
 
+Planning artifacts are stored per feature under:
+
+- `planning/<title-slug>/SPEC.md`
+- `planning/<title-slug>/tasks.yaml`
+- `planning/<title-slug>/task.graph.json`
+- `planning/<title-slug>/task.status.json`
+
 `tasks.yaml` uses strict schema v2. `version` must be `2`.
 
 Required task fields:
@@ -102,13 +109,14 @@ parallel_windows:
 Generate graph:
 
 ```bash
-node .agents/skills/feature-tasks/scripts/generate-task-graph.mjs [input-tasks-yaml] [output-graph-json]
+node .agents/skills/feature-tasks/scripts/generate-task-graph.mjs [title-slug] [output-graph-json]
 ```
 
-Defaults when args are omitted:
+Default behavior:
 
-- input: `<git-root>/tasks.yaml` (or `<cwd>/tasks.yaml` outside git)
-- output: `<git-root>/task.graph.json` (or `<cwd>/task.graph.json` outside git)
+- input: `<git-root>/planning/<title-slug>/tasks.yaml`
+- output: `<git-root>/planning/<title-slug>/task.graph.json`
+- if `title-slug` is omitted, it is derived from branch name (common prefixes like `feat-`, `fix-` are stripped)
 
 Validation failures include:
 
@@ -124,14 +132,15 @@ Validation failures include:
 Execution flow:
 
 1. Reset context (`/clear` or `/new` where available).
-2. Preflight: require readable `SPEC.md` and `tasks.yaml`; use `task.graph.json` if present.
-3. Initialize/load `task.status.json` at repo root.
-4. Dispatch only unblocked `todo` tasks.
-5. Delegate each task to collaborator/subagent.
-6. Run independent tasks in parallel when safe.
-7. Update `task.status.json` after every attempt.
-8. Retry once for transient/protocol failures; then mark `blocked` and continue.
-9. Finish when all tasks are `done` or terminal `blocked`.
+2. Resolve `title-slug` and work inside `planning/<title-slug>/`.
+3. Preflight: require readable `planning/<title-slug>/SPEC.md` and `planning/<title-slug>/tasks.yaml`; use `planning/<title-slug>/task.graph.json` if present.
+4. Initialize/load `planning/<title-slug>/task.status.json`.
+5. Dispatch only unblocked `todo` tasks.
+6. Delegate each task to collaborator/subagent.
+7. Run independent tasks in parallel when safe.
+8. Update `task.status.json` after every attempt.
+9. Retry once for transient/protocol failures; then mark `blocked` and continue.
+10. Finish when all tasks are `done` or terminal `blocked`.
 
 Required delegation response fields:
 
@@ -145,7 +154,7 @@ Required delegation response fields:
 
 ## `task.status.json` contract
 
-Default path: `task.status.json` in repository root.
+Default path: `planning/<title-slug>/task.status.json`.
 
 Top-level fields:
 

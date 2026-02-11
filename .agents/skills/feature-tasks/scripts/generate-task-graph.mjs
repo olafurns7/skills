@@ -5,9 +5,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 
-const SCHEMA_VERSION = 2;
+const GRAPH_SCHEMA_VERSION = 3;
+const SUPPORTED_INPUT_VERSIONS = new Set([2, 3]);
 const PRIORITIES = new Set(["low", "medium", "high", "critical"]);
 const OWNER_TYPES = new Set(["frontend", "backend", "infra", "docs", "qa", "fullstack"]);
+const CONVENTIONAL_BRANCH_TYPES = new Set([
+  "feat",
+  "fix",
+  "chore",
+  "docs",
+  "style",
+  "refactor",
+  "perf",
+  "test",
+  "build",
+  "ci",
+  "revert",
+]);
 
 function fail(message) {
   throw new Error(message);
@@ -29,6 +43,25 @@ function parseRequiredString(value, label, errors) {
 function parseOptionalString(value) {
   if (value === undefined || value === null) return "";
   return String(value).trim();
+}
+
+function parseOptionalStringList(value, label, errors) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    errors.push(`${label} must be an array of strings`);
+    return [];
+  }
+
+  const items = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const item = normalizeString(value[i]);
+    if (!item) {
+      errors.push(`${label}[${i}] must be a non-empty string`);
+      continue;
+    }
+    items.push(item);
+  }
+  return items;
 }
 
 function parseRequiredStringList(value, label, errors, { minItems = 1 } = {}) {
@@ -117,8 +150,8 @@ function parseTasksYaml(content) {
 
   const rawVersion = Number(document.version);
   const version = Number.isInteger(rawVersion) ? rawVersion : NaN;
-  if (version !== SCHEMA_VERSION) {
-    errors.push(`version must be ${SCHEMA_VERSION}`);
+  if (!SUPPORTED_INPUT_VERSIONS.has(version)) {
+    errors.push(`version must be one of: ${Array.from(SUPPORTED_INPUT_VERSIONS).join(", ")}`);
   }
 
   const project = parseRequiredString(document.project, "project", errors);
@@ -146,6 +179,7 @@ function parseTasksYaml(content) {
             owner_type: "",
             estimate: "",
             notes: "",
+            context: [],
           };
         }
 
@@ -181,6 +215,7 @@ function parseTasksYaml(content) {
 
         const estimate = parseRequiredString(task.estimate, `tasks[${index}].estimate`, fieldErrors);
         const notes = parseOptionalString(task.notes);
+        const context = parseOptionalStringList(task.context, `tasks[${index}].context`, fieldErrors);
 
         if (fieldErrors.length > 0) {
           const taskKey = id || `tasks[${index}]`;
@@ -198,6 +233,7 @@ function parseTasksYaml(content) {
           owner_type: ownerType,
           estimate,
           notes,
+          context,
         };
       })
     : [];
@@ -331,14 +367,22 @@ function validateGraphParity(parsed) {
 function buildGraph(parsed) {
   validateGraphParity(parsed);
 
-  const nodes = parsed.tasks.map((task) => ({
-    id: task.id,
-    phase: task.phase,
-    priority: task.priority,
-    title: task.title,
-    owner_type: task.owner_type,
-    estimate: task.estimate,
-  }));
+  const nodes = parsed.tasks.map((task) => {
+    const node = {
+      id: task.id,
+      phase: task.phase,
+      priority: task.priority,
+      title: task.title,
+      blocked_by: task.blocked_by,
+      acceptance: task.acceptance,
+      deliverables: task.deliverables,
+      owner_type: task.owner_type,
+      estimate: task.estimate,
+    };
+    if (task.context.length > 0) node.context = task.context;
+    if (task.notes) node.notes = task.notes;
+    return node;
+  });
 
   const edgeSet = new Set();
   const edges = [];
@@ -358,7 +402,7 @@ function buildGraph(parsed) {
   });
 
   return {
-    schema_version: SCHEMA_VERSION,
+    schema_version: GRAPH_SCHEMA_VERSION,
     version: parsed.meta.version,
     project: parsed.meta.project,
     generated_from: "tasks.yaml",
@@ -386,21 +430,81 @@ function resolveWorkspaceRoot(cwd) {
   return cwd;
 }
 
+function resolveGitBranchName(cwd) {
+  try {
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    }).trim();
+
+    if (!branch || branch === "HEAD") {
+      fail("Unable to infer planning slug from git branch. Pass an explicit slug argument.");
+    }
+
+    return branch;
+  } catch {
+    fail("Unable to read git branch. Pass an explicit slug argument.");
+  }
+}
+
+function toPlanningSlug(rawValue) {
+  const normalized = normalizeString(rawValue).toLowerCase();
+  if (!normalized) {
+    fail("Planning slug is required");
+  }
+
+  const branchParts = normalized.split("/").filter(Boolean);
+  let candidate = normalized;
+
+  if (branchParts.length > 1 && CONVENTIONAL_BRANCH_TYPES.has(branchParts[0])) {
+    candidate = branchParts.slice(1).join("-");
+  } else if (branchParts.length > 1) {
+    candidate = branchParts.join("-");
+  }
+
+  for (const type of CONVENTIONAL_BRANCH_TYPES) {
+    if (candidate.startsWith(`${type}-`)) {
+      candidate = candidate.slice(type.length + 1);
+      break;
+    }
+  }
+
+  const slug = candidate
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (!slug) {
+    fail(`Unable to derive a valid planning slug from "${rawValue}"`);
+  }
+
+  return slug;
+}
+
+function resolveArtifactPaths(cwd, workspaceRoot, slugArg, outputArg) {
+  const slugSource = slugArg ? slugArg : resolveGitBranchName(cwd);
+  const slug = toPlanningSlug(slugSource);
+  const planningDir = path.resolve(workspaceRoot, "planning", slug);
+
+  const inputPath = path.resolve(planningDir, "tasks.yaml");
+  const outputPath = outputArg
+    ? path.resolve(cwd, outputArg)
+    : path.resolve(planningDir, "task.graph.json");
+
+  return { slug, planningDir, inputPath, outputPath };
+}
+
 function main() {
   const cwd = process.cwd();
   const workspaceRoot = resolveWorkspaceRoot(cwd);
-  const inputArg = process.argv[2];
+  const slugArg = process.argv[2];
   const outputArg = process.argv[3];
-
-  const inputPath = inputArg
-    ? path.resolve(cwd, inputArg)
-    : path.resolve(workspaceRoot, "tasks.yaml");
-  const outputPath = outputArg
-    ? path.resolve(cwd, outputArg)
-    : path.resolve(workspaceRoot, "task.graph.json");
+  const { slug, inputPath, outputPath } = resolveArtifactPaths(cwd, workspaceRoot, slugArg, outputArg);
 
   if (!fs.existsSync(inputPath)) {
-    console.error(`Input file not found: ${inputPath}`);
+    console.error(
+      `Input file not found: ${inputPath}\nCreate planning artifacts at planning/${slug}/tasks.yaml first.`,
+    );
     process.exit(1);
   }
 
@@ -413,7 +517,7 @@ function main() {
     fs.writeFileSync(outputPath, `${JSON.stringify(graph, null, 2)}\n`);
 
     console.info(
-      `Generated ${path.relative(cwd, outputPath)} (${graph.nodes.length} nodes, ${graph.edges.length} edges)`,
+      `Generated ${path.relative(cwd, outputPath)} for planning/${slug} (${graph.nodes.length} nodes, ${graph.edges.length} edges)`,
     );
   } catch (error) {
     console.error(error.message);

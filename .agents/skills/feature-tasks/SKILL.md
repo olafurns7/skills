@@ -5,22 +5,26 @@ description: Break a feature request into dependency-aware implementation tasks 
 
 # Feature Tasks
 
-Create or update a `tasks.yaml` plan (schema v2) and generate `task.graph.json`.
+Create planning artifacts in `planning/<title-slug>/` and generate `task.graph.json`.
 
 ## Workflow
 
 1. Clarify feature scope, constraints, and acceptance criteria.
-2. Author `tasks.yaml` at repository root using the strict schema below.
-3. Run the bundled script to validate and generate `task.graph.json`.
-4. Fix all schema and parity errors until generation succeeds.
-5. Use `task.graph.json` to drive execution order.
+2. Pick a title slug (for example `add-new-payment-method`) and create `planning/<title-slug>/`.
+3. Author `planning/<title-slug>/SPEC.md` with: feature overview, requirements,
+   constraints, and design decisions. Required by the companion orchestration skill.
+4. Author `planning/<title-slug>/tasks.yaml` using the strict schema below.
+5. Keep related planning artifacts in the same folder (`SPEC.md`, `task.graph.json`, `task.status.json`).
+6. Run the bundled script to validate and generate `task.graph.json`.
+7. Fix all schema and parity errors until generation succeeds.
+8. Use `task.graph.json` to drive execution order.
 
 ## tasks.yaml schema (strict)
 
-`version` must be `2`.
+`version` must be `2` or `3`. Version `3` adds the optional `context` field per task.
 
 ```yaml
-version: 2
+version: 3
 project: <project-name>
 tasks:
   - id: TASK-001
@@ -35,6 +39,10 @@ tasks:
     owner_type: docs # frontend | backend | infra | docs | qa | fullstack
     estimate: M
     notes: Optional context
+    context:
+      - src/api/orders.ts
+      - SPEC.md#payment-flow
+      - Uses Repository pattern from src/lib/repo.ts
 critical_paths:
   - id: cp-main
     tasks: [TASK-001]
@@ -60,26 +68,37 @@ Every task must include:
 Optional:
 
 - `notes` (string)
+- `context` (array of strings): File paths, spec section refs, or hints pointing
+  subagents to relevant code. Example:
+  `["src/api/orders.ts", "SPEC.md#payment-flow", "Uses Repository pattern from src/lib/repo.ts"]`
+
+## Task granularity
+
+- Each task should be completable in a single agent session (typically 1-3 files changed).
+- If acceptance criteria span multiple subsystems, split into separate tasks with dependencies.
+- Prefer more small tasks over fewer large ones — parallelism improves throughput.
+- A task that changes more than 5 files is usually too broad.
 
 ## Execution
 
 Run from the target repository:
 
 ```bash
-node <path-to-skill>/scripts/generate-task-graph.mjs [input-tasks-yaml] [output-graph-json]
+node <path-to-skill>/scripts/generate-task-graph.mjs [title-slug] [output-graph-json]
 ```
 
-Defaults when arguments are omitted:
+Default behavior:
 
-- Input: `<git-root>/tasks.yaml` (or `<cwd>/tasks.yaml` outside git)
-- Output: `<git-root>/task.graph.json` (or `<cwd>/task.graph.json` outside git)
+- Input: `<git-root>/planning/<title-slug>/tasks.yaml`
+- Output: `<git-root>/planning/<title-slug>/task.graph.json`
+- If `title-slug` is omitted, the script derives it from the current branch name and strips common conventional prefixes (`feat-`, `fix-`, etc.).
 
 ## Validation and parity checks
 
 The script fails with actionable errors when:
 
 - Required fields are missing
-- `version` is not `2`
+- `version` is not `2` or `3`
 - `priority` or `owner_type` enum values are invalid
 - Task IDs are duplicated
 - `blocked_by` references unknown IDs
