@@ -23,8 +23,8 @@ TASKCTL="<path-to-skill>/scripts/taskctl"
 
 Runtime behavior:
 
-- On macOS arm64, `scripts/taskctl` prefers the compiled `taskctl-darwin-arm64` binary.
-- Otherwise it falls back to `bun taskctl.mjs`.
+- `scripts/taskctl` runs `bun taskctl.mjs`.
+- If Bun is unavailable, it exits with an install message.
 
 ## Protocol
 

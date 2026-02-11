@@ -84,7 +84,7 @@ Optional:
 Run from the target repository:
 
 ```bash
-node <path-to-skill>/scripts/generate-task-graph.mjs [title-slug] [output-graph-json]
+<path-to-skill>/scripts/generate-task-graph [title-slug] [output-graph-json]
 ```
 
 Default behavior:

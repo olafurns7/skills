@@ -22,13 +22,13 @@ This repository uses the open `.agents/skills` layout so it works with Codex, Cl
 .agents/skills/
   feature-tasks/
     SKILL.md
+    scripts/generate-task-graph
     scripts/generate-task-graph.mjs
     agents/openai.yaml
   feature-tasks-work/
     SKILL.md
     scripts/taskctl
     scripts/taskctl.mjs
-    scripts/taskctl-darwin-arm64
     agents/openai.yaml
 src/
   generate-task-graph.ts
@@ -72,8 +72,7 @@ TypeScript sources live in `src/` and are bundled with Bun into committed artifa
 
 For `feature-tasks-work`, build produces:
 
-- `scripts/taskctl.mjs` (Bun fallback script)
-- `scripts/taskctl-darwin-arm64` (standalone executable; no Bun required on macOS arm64)
+- `scripts/taskctl.mjs` (bundled Bun runtime script)
 - `scripts/taskctl` launcher wrapper
 
 ```bash
@@ -86,7 +85,6 @@ Individual build commands:
 npm run build:feature-tasks
 npm run build:feature-tasks-work
 npm run build:feature-tasks-work:script
-npm run build:feature-tasks-work:darwin-arm64
 ```
 
 ## `feature-tasks`: strict planning schema
@@ -146,7 +144,7 @@ parallel_windows:
 Generate graph:
 
 ```bash
-node .agents/skills/feature-tasks/scripts/generate-task-graph.mjs [title-slug] [output-graph-json]
+.agents/skills/feature-tasks/scripts/generate-task-graph [title-slug] [output-graph-json]
 ```
 
 Default behavior:
@@ -174,15 +172,8 @@ TASKCTL=".agents/skills/feature-tasks-work/scripts/taskctl"
 
 Runtime selection in `scripts/taskctl`:
 
-- macOS arm64 + compiled binary present: runs `taskctl-darwin-arm64`
-- otherwise: falls back to `bun taskctl.mjs`
-- if neither is available: exits with a clear install message
-
-If macOS Gatekeeper blocks execution after download/transfer, clear quarantine on the installed file:
-
-```bash
-xattr -d com.apple.quarantine .agents/skills/feature-tasks-work/scripts/taskctl-darwin-arm64
-```
+- runs `bun taskctl.mjs`
+- if Bun is not installed: exits with an install message
 
 Core orchestration loop:
 

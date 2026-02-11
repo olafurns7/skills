@@ -5,8 +5,7 @@
   "scripts": {
     "build:feature-tasks": "bun build src/generate-task-graph.ts --target=node --format=esm --outfile=.agents/skills/feature-tasks/scripts/generate-task-graph.mjs --banner='#!/usr/bin/env node' && chmod 755 .agents/skills/feature-tasks/scripts/generate-task-graph.mjs",
     "build:feature-tasks-work:script": "bun build src/index.ts --target=bun --format=esm --outfile=.agents/skills/feature-tasks-work/scripts/taskctl.mjs && chmod 755 .agents/skills/feature-tasks-work/scripts/taskctl.mjs",
-    "build:feature-tasks-work:darwin-arm64": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile=.agents/skills/feature-tasks-work/scripts/taskctl-darwin-arm64 && chmod 755 .agents/skills/feature-tasks-work/scripts/taskctl-darwin-arm64",
-    "build:feature-tasks-work": "npm run build:feature-tasks-work:script && npm run build:feature-tasks-work:darwin-arm64",
+    "build:feature-tasks-work": "npm run build:feature-tasks-work:script",
     "build": "npm run build:feature-tasks && npm run build:feature-tasks-work",
     "check:feature-tasks": "node --check .agents/skills/feature-tasks/scripts/generate-task-graph.mjs",
     "check:feature-tasks-work": ".agents/skills/feature-tasks-work/scripts/taskctl help >/dev/null"

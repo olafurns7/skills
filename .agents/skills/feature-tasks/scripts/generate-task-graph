@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/generate-task-graph.mjs"
+
+if command -v node >/dev/null 2>&1; then
+  exec node "$SCRIPT_PATH" "$@"
+fi
+
+if command -v bun >/dev/null 2>&1; then
+  exec bun "$SCRIPT_PATH" "$@"
+fi
+
+echo "generate-task-graph: neither node nor bun is installed." >&2
+exit 1
