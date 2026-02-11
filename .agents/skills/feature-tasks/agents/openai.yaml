@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feature Tasks"
+  short_description: "Create dependency-aware task graphs."
+  default_prompt: "Use $feature-tasks to break this feature into blocked-by tasks and generate a graph-ready plan."

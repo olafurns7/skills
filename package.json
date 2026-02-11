@@ -1,0 +1,11 @@
+{
+  "name": "feature-tasks-skill-repo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:feature-tasks": "node --check .agents/skills/feature-tasks/scripts/generate-task-graph.mjs"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  }
+}

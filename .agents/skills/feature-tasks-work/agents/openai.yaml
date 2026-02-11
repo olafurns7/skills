@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feature Tasks Work"
+  short_description: "Orchestrate task execution via delegation."
+  default_prompt: "Use $feature-tasks-work to reset context, read SPEC.md and tasks.yaml, and delegate each task to collaborators/subagents."
