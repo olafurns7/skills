@@ -7362,10 +7362,36 @@ function toPlanningSlug(rawValue) {
   }
   return slug;
 }
+function formatDatePrefix(date) {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+  return `${day}-${month}-${year}`;
+}
+function hasDatePrefix(slug) {
+  return /^\d{2}-\d{2}-\d{4}-/.test(slug);
+}
+function toDatedPlanningSlug(slug) {
+  if (hasDatePrefix(slug))
+    return slug;
+  return `${formatDatePrefix(new Date)}-${slug}`;
+}
+function resolvePlanningDirectory(workspaceRoot, slug) {
+  const datedSlug = toDatedPlanningSlug(slug);
+  const datedPlanningDir = path.resolve(workspaceRoot, "planning", datedSlug);
+  if (fs.existsSync(datedPlanningDir)) {
+    return { slug: datedSlug, planningDir: datedPlanningDir };
+  }
+  const legacyPlanningDir = path.resolve(workspaceRoot, "planning", slug);
+  if (!hasDatePrefix(slug) && fs.existsSync(legacyPlanningDir)) {
+    return { slug, planningDir: legacyPlanningDir };
+  }
+  return { slug: datedSlug, planningDir: datedPlanningDir };
+}
 function resolveArtifactPaths(cwd, workspaceRoot, slugArg, outputArg) {
   const slugSource = slugArg ? slugArg : resolveGitBranchName(cwd);
-  const slug = toPlanningSlug(slugSource);
-  const planningDir = path.resolve(workspaceRoot, "planning", slug);
+  const normalizedSlug = toPlanningSlug(slugSource);
+  const { slug, planningDir } = resolvePlanningDirectory(workspaceRoot, normalizedSlug);
   const inputPath = path.resolve(planningDir, "tasks.yaml");
   const outputPath = outputArg ? path.resolve(cwd, outputArg) : path.resolve(planningDir, "task.graph.json");
   return { slug, planningDir, inputPath, outputPath };

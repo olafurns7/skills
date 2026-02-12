@@ -91,9 +91,9 @@ bun run build:feature-tasks-work:script
 
 Planning artifacts are stored per feature under:
 
-- `planning/<title-slug>/SPEC.md`
-- `planning/<title-slug>/tasks.yaml`
-- `planning/<title-slug>/task.graph.json`
+- `planning/<dd-mm-yyyy-title-slug>/SPEC.md`
+- `planning/<dd-mm-yyyy-title-slug>/tasks.yaml`
+- `planning/<dd-mm-yyyy-title-slug>/task.graph.json`
 
 `tasks.yaml` uses strict schema v3. `version` must be `3`.
 
@@ -157,9 +157,9 @@ Installed-skill equivalent:
 
 Default behavior:
 
-- input: `<git-root>/planning/<title-slug>/tasks.yaml`
-- output: `<git-root>/planning/<title-slug>/task.graph.json`
-- if `title-slug` is omitted, it is derived from branch name (common prefixes like `feat-`, `fix-` are stripped)
+- input: `<git-root>/planning/<dd-mm-yyyy-title-slug>/tasks.yaml`
+- output: `<git-root>/planning/<dd-mm-yyyy-title-slug>/task.graph.json`
+- if `title-slug` is omitted, it is derived from branch name (common prefixes like `feat-`, `fix-` are stripped), then new folders are resolved as `dd-mm-yyyy-<slug>` (existing non-prefixed folders are reused)
 
 Validation failures include:
 
@@ -198,9 +198,9 @@ Core orchestration loop:
 Execution flow:
 
 1. Reset context (`/clear` or `/new` where available).
-2. Resolve `title-slug` and work inside `planning/<title-slug>/`.
-3. Preflight: require readable `planning/<title-slug>/SPEC.md` and `planning/<title-slug>/tasks.yaml`; use `planning/<title-slug>/task.graph.json` if present.
-4. Initialize/load `planning/<title-slug>/task.status.json`.
+2. Resolve `title-slug` and work inside `planning/<dd-mm-yyyy-title-slug>/` for new folders (existing non-prefixed folders are reused).
+3. Preflight: require readable `planning/<dd-mm-yyyy-title-slug>/SPEC.md` and `planning/<dd-mm-yyyy-title-slug>/tasks.yaml`; use `planning/<dd-mm-yyyy-title-slug>/task.graph.json` if present.
+4. Initialize/load `planning/<dd-mm-yyyy-title-slug>/task.status.json`.
 5. Dispatch only unblocked `todo` tasks.
 6. Delegate each task to another agent/model worker instance.
 7. Run independent tasks in parallel when safe.
@@ -223,7 +223,7 @@ Terminology note:
 
 ## `task.status.json` contract
 
-Default path: `planning/<title-slug>/task.status.json`.
+Default path: `planning/<dd-mm-yyyy-title-slug>/task.status.json`.
 
 Top-level fields:
 

@@ -150,11 +150,42 @@ function toPlanningSlug(rawValue) {
   return slug;
 }
 
+function formatDatePrefix(date) {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+  return `${day}-${month}-${year}`;
+}
+
+function hasDatePrefix(slug) {
+  return /^\d{2}-\d{2}-\d{4}-/.test(slug);
+}
+
+function toDatedPlanningSlug(slug) {
+  if (hasDatePrefix(slug)) return slug;
+  return `${formatDatePrefix(new Date())}-${slug}`;
+}
+
+function resolvePlanningDirectory(workspaceRoot, slug) {
+  const datedSlug = toDatedPlanningSlug(slug);
+  const datedPlanningDir = path.resolve(workspaceRoot, "planning", datedSlug);
+  if (fs.existsSync(datedPlanningDir)) {
+    return { slug: datedSlug, planningDir: datedPlanningDir };
+  }
+
+  const legacyPlanningDir = path.resolve(workspaceRoot, "planning", slug);
+  if (!hasDatePrefix(slug) && fs.existsSync(legacyPlanningDir)) {
+    return { slug, planningDir: legacyPlanningDir };
+  }
+
+  return { slug: datedSlug, planningDir: datedPlanningDir };
+}
+
 function resolvePlanningPaths(cwd, slugArg) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const slugSource = slugArg ? slugArg : resolveGitBranchName(cwd);
-  const slug = toPlanningSlug(slugSource);
-  const planningDir = path.resolve(workspaceRoot, "planning", slug);
+  const normalizedSlug = toPlanningSlug(slugSource);
+  const { slug, planningDir } = resolvePlanningDirectory(workspaceRoot, normalizedSlug);
 
   return {
     workspaceRoot,
@@ -706,7 +737,7 @@ Commands:
 
 Notes:
   - If title-slug is omitted, it is derived from the current git branch.
-  - Planning files are read from planning/<title-slug>/.
+  - Planning files are read from planning/<dd-mm-yyyy-title-slug>/ (auto-prefixed for new folders; legacy non-prefixed folders are reused).
 `.trim();
   process.stdout.write(`${help}\n`);
 }

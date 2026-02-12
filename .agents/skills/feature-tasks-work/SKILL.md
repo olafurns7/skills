@@ -11,7 +11,7 @@ Execute planned work as an orchestrator with deterministic delegation and status
 
 Use the bundled CLI for orchestration state and prompt assembly.
 
-- Do not hand-edit `planning/<title-slug>/task.status.json` during normal execution.
+- Do not hand-edit `planning/<dd-mm-yyyy-title-slug>/task.status.json` during normal execution.
 - Use `taskctl` commands for queue reads, task lifecycle transitions, and delegation prompts.
 - Hand edits are recovery-only when the status file is corrupted.
 
@@ -36,7 +36,7 @@ Runtime behavior:
 ## Protocol
 
 1. Start orchestration with minimal prior context. If your agent supports session reset, use it.
-2. Resolve `title-slug` (for example `add-new-payment-method`) under `planning/`.
+2. Resolve `title-slug` (for example `add-new-payment-method`) under `planning/`; new folders use `dd-mm-yyyy-<slug>` while existing non-prefixed folders are reused.
 3. Run `"$TASKCTL" init <title-slug>`.
    - Loads or creates `task.status.json`.
    - Resets stale `in_progress` entries to `todo`.
@@ -72,7 +72,7 @@ The script supports these commands:
 
 Notes:
 
-- If `title-slug` is omitted, it is derived from the current branch.
+- If `title-slug` is omitted, it is derived from the current branch and resolved to `dd-mm-yyyy-<slug>` for new folders (existing non-prefixed folders are reused).
 - `prompt` returns both structured payload and formatted prompt when `--json` is used.
 - For `prompt` or `dispatch`, if `title-slug` is omitted and task ID is explicit, pass `--task <task-id>`.
 
@@ -125,7 +125,7 @@ Treat missing required fields as protocol failure and apply retry policy.
 
 ## task.status.json schema
 
-Default path: `planning/<title-slug>/task.status.json`.
+Default path: `planning/<dd-mm-yyyy-title-slug>/task.status.json`.
 
 ```json
 {
@@ -147,7 +147,7 @@ Default path: `planning/<title-slug>/task.status.json`.
       "finished_at": "2026-02-11T11:55:00.000Z",
       "blockers": [],
       "files_changed": ["src/api/orders.ts"],
-      "tests_run": ["npm test -- orders"],
+      "tests_run": ["bun test -- orders"],
       "result_summary": "Implemented order endpoint and tests.",
       "next_unblocked_tasks": ["TASK-002"]
     }

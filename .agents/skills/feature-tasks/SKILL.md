@@ -5,15 +5,15 @@ description: Break a feature request into dependency-aware implementation tasks 
 
 # Feature Tasks
 
-Create planning artifacts in `planning/<title-slug>/` and generate `task.graph.json`.
+Create planning artifacts in `planning/<dd-mm-yyyy-title-slug>/` and generate `task.graph.json`.
 
 ## Workflow
 
 1. Clarify feature scope, constraints, and acceptance criteria.
-2. Pick a title slug (for example `add-new-payment-method`) and create `planning/<title-slug>/`.
-3. Author `planning/<title-slug>/SPEC.md` with: feature overview, requirements,
+2. Pick a title slug (for example `add-new-payment-method`). The generator resolves it to `planning/<dd-mm-yyyy-title-slug>/` for new folders, while existing non-prefixed folders are reused.
+3. Author `planning/<dd-mm-yyyy-title-slug>/SPEC.md` with: feature overview, requirements,
    constraints, and design decisions. Required by the companion orchestration skill.
-4. Author `planning/<title-slug>/tasks.yaml` using the strict schema below.
+4. Author `planning/<dd-mm-yyyy-title-slug>/tasks.yaml` using the strict schema below.
 5. Keep related planning artifacts in the same folder (`SPEC.md`, `task.graph.json`, `task.status.json`).
 6. Run the bundled script to validate and generate `task.graph.json`.
 7. Fix all schema and parity errors until generation succeeds.
@@ -21,7 +21,7 @@ Create planning artifacts in `planning/<title-slug>/` and generate `task.graph.j
 
 ## tasks.yaml schema (strict)
 
-`version` must be `2` or `3`. Version `3` adds the optional `context` field per task.
+`version` must be `3`. Version `3` supports the optional `context` field per task.
 
 ```yaml
 version: 3
@@ -89,16 +89,16 @@ Run from the target repository:
 
 Default behavior:
 
-- Input: `<git-root>/planning/<title-slug>/tasks.yaml`
-- Output: `<git-root>/planning/<title-slug>/task.graph.json`
-- If `title-slug` is omitted, the script derives it from the current branch name and strips common conventional prefixes (`feat-`, `fix-`, etc.).
+- Input: `<git-root>/planning/<dd-mm-yyyy-title-slug>/tasks.yaml`
+- Output: `<git-root>/planning/<dd-mm-yyyy-title-slug>/task.graph.json`
+- If `title-slug` is omitted, the script derives it from the current branch name, strips common conventional prefixes (`feat-`, `fix-`, etc.), and resolves new folders to a `dd-mm-yyyy-<slug>` prefix (existing non-prefixed folders are reused).
 
 ## Validation and parity checks
 
 The script fails with actionable errors when:
 
 - Required fields are missing
-- `version` is not `2` or `3`
+- `version` is not `3`
 - `priority` or `owner_type` enum values are invalid
 - Task IDs are duplicated
 - `blocked_by` references unknown IDs
