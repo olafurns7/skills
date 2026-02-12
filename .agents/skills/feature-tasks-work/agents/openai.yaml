@@ -1,4 +1,4 @@
 interface:
   display_name: "Feature Tasks Work"
-  short_description: "Orchestrate task execution via delegation."
-  default_prompt: "Use $feature-tasks-work to orchestrate from planning/<title-slug>/SPEC.md and planning/<title-slug>/tasks.yaml using scripts/taskctl for status and delegation prompts."
+  short_description: "Orchestrate task execution via worker delegation."
+  default_prompt: "Use $feature-tasks-work to orchestrate from planning/<title-slug>/SPEC.md and planning/<title-slug>/tasks.yaml using scripts/taskctl for status and worker delegation prompts (worker ids are logical labels, not filesystem paths)."

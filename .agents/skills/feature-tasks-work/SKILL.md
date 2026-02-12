@@ -1,6 +1,6 @@
 ---
 name: feature-tasks-work
-description: Orchestrate execution from feature task plans. Use when work should start from SPEC.md and tasks.yaml, optionally using task.graph.json, by delegating implementation tasks to collaborators or subagents.
+description: Orchestrate execution from feature task plans. Use when work should start from SPEC.md and tasks.yaml, optionally using task.graph.json, by delegating implementation tasks to other agent/model worker instances.
 ---
 
 # Feature Tasks Work
@@ -24,6 +24,9 @@ TASKCTL="<path-to-skill>/scripts/taskctl"
 Always execute the CLI via `"$TASKCTL" ...`.
 Do not assume `taskctl` is available on `PATH`.
 
+Terminology note:
+- In this skill, `collaborator`, `subagent`, and `teammate` mean a worker identity (agent/model/session id), not a filesystem path.
+
 Runtime behavior:
 
 - `scripts/taskctl` runs `node taskctl.mjs` when Node.js is available.
@@ -40,10 +43,10 @@ Runtime behavior:
    - Re-evaluates blocked tasks whose blockers are now done.
 4. Discover dispatchable work with `"$TASKCTL" ready <title-slug> --json`.
 5. For each task, prefer atomic dispatch:
-   - `"$TASKCTL" dispatch <title-slug> [task-id] --owner <orchestrator-or-subagent-id> --json`
+   - `"$TASKCTL" dispatch <title-slug> [task-id] --owner <orchestrator-or-worker-id> --json`
 6. If dispatch is not used, do split mode:
    - Build delegation payload/prompt with `"$TASKCTL" prompt <title-slug> <task-id> --json`.
-   - Mark dispatched with `"$TASKCTL" start <title-slug> <task-id> --owner <orchestrator-or-subagent-id>`.
+   - Mark dispatched with `"$TASKCTL" start <title-slug> <task-id> --owner <orchestrator-or-worker-id>`.
 7. Delegate using the generated prompt.
 8. After each attempt, persist result with:
    - `"$TASKCTL" complete <title-slug> <task-id> --result <done|blocked|failed> --summary "..." --files ... --tests ... --blockers ... --next ...`
@@ -138,7 +141,7 @@ Default path: `planning/<title-slug>/task.status.json`.
   "tasks": {
     "TASK-001": {
       "state": "done",
-      "owner": "subagent-backend-1",
+      "owner": "worker-backend-1",
       "attempts": 1,
       "started_at": "2026-02-11T11:40:00.000Z",
       "finished_at": "2026-02-11T11:55:00.000Z",

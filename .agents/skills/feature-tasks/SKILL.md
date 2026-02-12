@@ -69,7 +69,7 @@ Optional:
 
 - `notes` (string)
 - `context` (array of strings): File paths, spec section refs, or hints pointing
-  subagents to relevant code. Example:
+  worker agents to relevant code. Example:
   `["src/api/orders.ts", "SPEC.md#payment-flow", "Uses Repository pattern from src/lib/repo.ts"]`
 
 ## Task granularity

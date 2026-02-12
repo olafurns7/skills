@@ -13,7 +13,7 @@ This repository uses the open `.agents/skills` layout so it works with Codex, Cl
 - `feature-tasks-work`
   - Runs orchestration from `SPEC.md` + planning artifacts
   - Uses `scripts/taskctl` (bundled from TypeScript) for status updates and prompt assembly
-  - Delegates tasks to collaborators/subagents with a required response contract
+  - Delegates tasks to other agent/model worker instances with a required response contract
   - Maintains resumable execution state in `task.status.json`
 
 ## Repository structure
@@ -40,7 +40,7 @@ src/
 Install all skills from this repo (with interactive agent selection):
 
 ```bash
-npx skills add olafurns7/skills --skill '*'
+npx skills@latest add olafurns7/skills --skill '*'
 ```
 
 List available skills from this repo:
@@ -76,15 +76,15 @@ For `feature-tasks-work`, build produces:
 - `scripts/taskctl` launcher wrapper
 
 ```bash
-npm run build
+bun run build
 ```
 
 Individual build commands:
 
 ```bash
-npm run build:feature-tasks
-npm run build:feature-tasks-work
-npm run build:feature-tasks-work:script
+bun run build:feature-tasks
+bun run build:feature-tasks-work
+bun run build:feature-tasks-work:script
 ```
 
 ## `feature-tasks`: strict planning schema
@@ -94,7 +94,6 @@ Planning artifacts are stored per feature under:
 - `planning/<title-slug>/SPEC.md`
 - `planning/<title-slug>/tasks.yaml`
 - `planning/<title-slug>/task.graph.json`
-- `planning/<title-slug>/task.status.json`
 
 `tasks.yaml` uses strict schema v3. `version` must be `3`.
 
@@ -150,6 +149,12 @@ Generate graph:
 .agents/skills/feature-tasks/scripts/generate-task-graph [title-slug] [output-graph-json]
 ```
 
+Installed-skill equivalent:
+
+```bash
+<path-to-skill>/scripts/generate-task-graph [title-slug] [output-graph-json]
+```
+
 Default behavior:
 
 - input: `<git-root>/planning/<title-slug>/tasks.yaml`
@@ -175,7 +180,7 @@ TASKCTL=".agents/skills/feature-tasks-work/scripts/taskctl"
 
 Always call `"$TASKCTL" ...` and do not assume `taskctl` is on `PATH`.
 
-Runtime selection in `scripts/taskctl`:
+Runtime behavior of `scripts/taskctl`:
 
 - runs `node taskctl.mjs` when Node.js is available
 - otherwise runs `bun taskctl.mjs` when Bun is available
@@ -197,7 +202,7 @@ Execution flow:
 3. Preflight: require readable `planning/<title-slug>/SPEC.md` and `planning/<title-slug>/tasks.yaml`; use `planning/<title-slug>/task.graph.json` if present.
 4. Initialize/load `planning/<title-slug>/task.status.json`.
 5. Dispatch only unblocked `todo` tasks.
-6. Delegate each task to collaborator/subagent.
+6. Delegate each task to another agent/model worker instance.
 7. Run independent tasks in parallel when safe.
 8. Update `task.status.json` after every attempt.
 9. Retry once for transient/protocol failures; then mark `blocked` and continue.
@@ -212,6 +217,9 @@ Required delegation response fields:
 - `tests_run` (array)
 - `blockers` (array)
 - `next_unblocked_tasks` (array)
+
+Terminology note:
+- In this repo, `collaborator`, `subagent`, and `teammate` mean a worker identity (agent/model/session id), not a filesystem path.
 
 ## `task.status.json` contract
 
