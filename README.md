@@ -14,7 +14,7 @@ This repository uses the open `.agents/skills` layout so it works with Codex, Cl
   - Runs orchestration from `SPEC.md` + planning artifacts
   - Uses `scripts/taskctl` (bundled from TypeScript) for status updates and prompt assembly
   - Delegates tasks to collaborators/subagents with a required response contract
-  - Maintains resumable execution state in `task.db` and exports `task.status.json` snapshots
+  - Maintains resumable execution state in `task.status.json`
 
 ## Repository structure
 
@@ -72,7 +72,7 @@ TypeScript sources live in `src/` and are bundled with Bun into committed artifa
 
 For `feature-tasks-work`, build produces:
 
-- `scripts/taskctl.mjs` (bundled Bun runtime script)
+- `scripts/taskctl.mjs` (bundled CLI script)
 - `scripts/taskctl` launcher wrapper
 
 ```bash
@@ -94,8 +94,7 @@ Planning artifacts are stored per feature under:
 - `planning/<title-slug>/SPEC.md`
 - `planning/<title-slug>/tasks.yaml`
 - `planning/<title-slug>/task.graph.json`
-- `planning/<title-slug>/task.db`
-- `planning/<title-slug>/task.status.json` (exported snapshot)
+- `planning/<title-slug>/task.status.json`
 
 `tasks.yaml` uses strict schema v2. `version` must be `2`.
 
@@ -172,8 +171,9 @@ TASKCTL=".agents/skills/feature-tasks-work/scripts/taskctl"
 
 Runtime selection in `scripts/taskctl`:
 
-- runs `bun taskctl.mjs`
-- if Bun is not installed: exits with an install message
+- runs `node taskctl.mjs` when Node.js is available
+- otherwise runs `bun taskctl.mjs` when Bun is available
+- if neither is installed: exits with an install message
 
 Core orchestration loop:
 
@@ -189,11 +189,11 @@ Execution flow:
 1. Reset context (`/clear` or `/new` where available).
 2. Resolve `title-slug` and work inside `planning/<title-slug>/`.
 3. Preflight: require readable `planning/<title-slug>/SPEC.md` and `planning/<title-slug>/tasks.yaml`; use `planning/<title-slug>/task.graph.json` if present.
-4. Initialize/load `planning/<title-slug>/task.db` and export `planning/<title-slug>/task.status.json`.
+4. Initialize/load `planning/<title-slug>/task.status.json`.
 5. Dispatch only unblocked `todo` tasks.
 6. Delegate each task to collaborator/subagent.
 7. Run independent tasks in parallel when safe.
-8. Update `task.db` after every attempt and export `task.status.json`.
+8. Update `task.status.json` after every attempt.
 9. Retry once for transient/protocol failures; then mark `blocked` and continue.
 10. Finish when all tasks are `done` or terminal `blocked`.
 
@@ -209,7 +209,7 @@ Required delegation response fields:
 
 ## `task.status.json` contract
 
-Default path: `planning/<title-slug>/task.status.json` (exported compatibility snapshot from `task.db`).
+Default path: `planning/<title-slug>/task.status.json`.
 
 Top-level fields:
 

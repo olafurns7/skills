@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build:feature-tasks": "bun build src/generate-task-graph.ts --target=node --format=esm --outfile=.agents/skills/feature-tasks/scripts/generate-task-graph.mjs --banner='#!/usr/bin/env node' && chmod 755 .agents/skills/feature-tasks/scripts/generate-task-graph.mjs",
-    "build:feature-tasks-work:script": "bun build src/index.ts --target=bun --format=esm --outfile=.agents/skills/feature-tasks-work/scripts/taskctl.mjs && chmod 755 .agents/skills/feature-tasks-work/scripts/taskctl.mjs",
+    "build:feature-tasks-work:script": "bun build src/index.ts --target=node --format=esm --outfile=.agents/skills/feature-tasks-work/scripts/taskctl.mjs && chmod 755 .agents/skills/feature-tasks-work/scripts/taskctl.mjs",
     "build:feature-tasks-work": "npm run build:feature-tasks-work:script",
     "build": "npm run build:feature-tasks && npm run build:feature-tasks-work",
     "check:feature-tasks": "node --check .agents/skills/feature-tasks/scripts/generate-task-graph.mjs",

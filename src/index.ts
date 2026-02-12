@@ -1,11 +1,9 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { Database } from "bun:sqlite";
 import { parse as parseYaml } from "yaml";
 
 const STATUS_SCHEMA_VERSION = 2;
-const DB_SCHEMA_VERSION = 1;
 const CONVENTIONAL_BRANCH_TYPES = new Set([
   "feat",
   "fix",
@@ -21,8 +19,6 @@ const CONVENTIONAL_BRANCH_TYPES = new Set([
 ]);
 const VALID_STATES = new Set(["todo", "in_progress", "done", "blocked"]);
 const VALID_RESULTS = new Set(["done", "blocked", "failed"]);
-const TASK_ARRAY_KINDS = ["blockers", "files_changed", "tests_run", "next_unblocked_tasks"];
-const STATUS_CONTEXT = new WeakMap();
 
 function fail(message) {
   console.error(message);
@@ -168,7 +164,6 @@ function resolvePlanningPaths(cwd, slugArg) {
     tasksPath: path.resolve(planningDir, "tasks.yaml"),
     graphPath: path.resolve(planningDir, "task.graph.json"),
     statusPath: path.resolve(planningDir, "task.status.json"),
-    dbPath: path.resolve(planningDir, "task.db"),
   };
 }
 
@@ -365,137 +360,6 @@ function normalizeTaskStatusRecord(value) {
   return normalized;
 }
 
-function openStateDb(paths) {
-  fs.mkdirSync(path.dirname(paths.dbPath), { recursive: true });
-  const db = new Database(paths.dbPath, { create: true, strict: true });
-
-  db.exec("PRAGMA journal_mode = WAL;");
-  db.exec("PRAGMA busy_timeout = 5000;");
-  db.exec("PRAGMA foreign_keys = ON;");
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS tasks (
-      task_id TEXT PRIMARY KEY,
-      state TEXT NOT NULL CHECK(state IN ('todo','in_progress','done','blocked')),
-      owner TEXT NOT NULL DEFAULT '',
-      attempts INTEGER NOT NULL DEFAULT 0,
-      started_at TEXT,
-      finished_at TEXT,
-      result_summary TEXT NOT NULL DEFAULT ''
-    );
-
-    CREATE TABLE IF NOT EXISTS task_arrays (
-      task_id TEXT NOT NULL,
-      kind TEXT NOT NULL CHECK(kind IN ('blockers','files_changed','tests_run','next_unblocked_tasks')),
-      idx INTEGER NOT NULL,
-      value TEXT NOT NULL,
-      PRIMARY KEY(task_id, kind, idx),
-      FOREIGN KEY(task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS plan_tasks (
-      task_id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      blocked_by_json TEXT NOT NULL,
-      acceptance_json TEXT NOT NULL,
-      deliverables_json TEXT NOT NULL,
-      context_json TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ts TEXT NOT NULL,
-      task_id TEXT NOT NULL,
-      action TEXT NOT NULL,
-      payload_json TEXT NOT NULL
-    );
-  `);
-
-  db
-    .query(
-      "INSERT INTO meta(key, value) VALUES ('schema_version', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .run(String(DB_SCHEMA_VERSION));
-
-  return db;
-}
-
-function readTaskArray(db, taskId, kind) {
-  const rows = db
-    .query("SELECT value FROM task_arrays WHERE task_id = ?1 AND kind = ?2 ORDER BY idx ASC")
-    .all(taskId, kind);
-  return rows.map((row) => normalizeString(row.value)).filter(Boolean);
-}
-
-function readTaskRecordFromDb(db, taskId) {
-  const row = db
-    .query(
-      "SELECT state, owner, attempts, started_at, finished_at, result_summary FROM tasks WHERE task_id = ?1",
-    )
-    .get(taskId);
-
-  if (!row) {
-    return defaultTaskStatus();
-  }
-
-  return normalizeTaskStatusRecord({
-    state: row.state,
-    owner: row.owner,
-    attempts: row.attempts,
-    started_at: row.started_at,
-    finished_at: row.finished_at,
-    result_summary: row.result_summary,
-    blockers: readTaskArray(db, taskId, "blockers"),
-    files_changed: readTaskArray(db, taskId, "files_changed"),
-    tests_run: readTaskArray(db, taskId, "tests_run"),
-    next_unblocked_tasks: readTaskArray(db, taskId, "next_unblocked_tasks"),
-  });
-}
-
-function upsertTaskRecord(db, taskId, record) {
-  const safeRecord = normalizeTaskStatusRecord(record);
-  db
-    .query(
-      `INSERT INTO tasks(task_id, state, owner, attempts, started_at, finished_at, result_summary)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-       ON CONFLICT(task_id) DO UPDATE SET
-         state = excluded.state,
-         owner = excluded.owner,
-         attempts = excluded.attempts,
-         started_at = excluded.started_at,
-         finished_at = excluded.finished_at,
-         result_summary = excluded.result_summary`,
-    )
-    .run(
-      taskId,
-      safeRecord.state,
-      safeRecord.owner,
-      safeRecord.attempts,
-      safeRecord.started_at,
-      safeRecord.finished_at,
-      safeRecord.result_summary,
-    );
-
-  db.query("DELETE FROM task_arrays WHERE task_id = ?1").run(taskId);
-  const insertArray = db.query(
-    "INSERT INTO task_arrays(task_id, kind, idx, value) VALUES (?1, ?2, ?3, ?4)",
-  );
-
-  for (const kind of TASK_ARRAY_KINDS) {
-    const values = Array.isArray(safeRecord[kind]) ? safeRecord[kind] : [];
-    for (let idx = 0; idx < values.length; idx += 1) {
-      const value = normalizeString(values[idx]);
-      if (!value) continue;
-      insertArray.run(taskId, kind, idx, value);
-    }
-  }
-}
-
 function readStatusSnapshot(paths) {
   let rawStatus = {};
   try {
@@ -515,64 +379,6 @@ function readStatusSnapshot(paths) {
   };
 }
 
-function bootstrapDbForPlan(db, paths, plan, warnings) {
-  const existingProject = normalizeString(
-    db.query("SELECT value FROM meta WHERE key = 'project'").get()?.value,
-  );
-  if (existingProject && existingProject !== plan.project) {
-    warnings.push(
-      `Status project "${existingProject}" does not match plan project "${plan.project}". Using plan project.`,
-    );
-  }
-
-  db.query(
-    "INSERT INTO meta(key, value) VALUES ('project', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run(plan.project);
-  db.query(
-    "INSERT INTO meta(key, value) VALUES ('updated_at', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run(new Date().toISOString());
-
-  const existingTaskCount = Number(db.query("SELECT COUNT(*) AS count FROM tasks").get()?.count ?? 0);
-  if (existingTaskCount === 0 && fs.existsSync(paths.statusPath)) {
-    const snapshot = readStatusSnapshot(paths);
-    if (snapshot.project && snapshot.project !== plan.project) {
-      warnings.push(
-        `Imported status project "${snapshot.project}" does not match plan project "${plan.project}". Using plan project.`,
-      );
-    }
-    for (const taskId of plan.taskOrder) {
-      const record = normalizeTaskStatusRecord(snapshot.tasks?.[taskId]);
-      upsertTaskRecord(db, taskId, record);
-    }
-  }
-
-  const insertDefaultTask = db.query(
-    `INSERT INTO tasks(task_id, state, owner, attempts, started_at, finished_at, result_summary)
-     VALUES (?1, 'todo', '', 0, NULL, NULL, '')
-     ON CONFLICT(task_id) DO NOTHING`,
-  );
-  for (const taskId of plan.taskOrder) {
-    insertDefaultTask.run(taskId);
-  }
-
-  db.query("DELETE FROM plan_tasks").run();
-  const insertPlanTask = db.query(
-    `INSERT INTO plan_tasks(task_id, title, blocked_by_json, acceptance_json, deliverables_json, context_json)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-  );
-  for (const taskId of plan.taskOrder) {
-    const task = plan.tasksById[taskId];
-    insertPlanTask.run(
-      taskId,
-      task.title,
-      JSON.stringify(task.blocked_by),
-      JSON.stringify(task.acceptance),
-      JSON.stringify(task.deliverables),
-      JSON.stringify(task.context),
-    );
-  }
-}
-
 function summarizeTasks(tasks, taskOrder) {
   const summary = { todo: 0, in_progress: 0, done: 0, blocked: 0 };
   for (const taskId of taskOrder) {
@@ -588,127 +394,67 @@ function canUnblockFromDependencies(blockers, tasks, knownTaskIds) {
   return blockers.every((blocker) => tasks[blocker]?.state === "done");
 }
 
-function loadStatus(paths, plan, { resetInProgress, reevaluateBlocked, forWrite = false }) {
-  const db = openStateDb(paths);
-  let transactionOpened = false;
+function loadStatus(paths, plan, { resetInProgress, reevaluateBlocked }) {
   const warnings = [];
+  let rawTasks = {};
 
-  try {
-    if (forWrite) {
-      db.exec("BEGIN IMMEDIATE");
-      transactionOpened = true;
+  if (fs.existsSync(paths.statusPath)) {
+    const snapshot = readStatusSnapshot(paths);
+    rawTasks = snapshot.tasks;
+    if (snapshot.project && snapshot.project !== plan.project) {
+      warnings.push(
+        `Status project "${snapshot.project}" does not match plan project "${plan.project}". Using plan project.`,
+      );
     }
-
-    bootstrapDbForPlan(db, paths, plan, warnings);
-
-    const tasks = {};
-    const knownTaskIds = new Set(plan.taskOrder);
-    for (const taskId of plan.taskOrder) {
-      const record = readTaskRecordFromDb(db, taskId);
-      if (resetInProgress && record.state === "in_progress") {
-        record.state = "todo";
-        record.owner = "";
-      }
-      tasks[taskId] = record;
-    }
-
-    if (reevaluateBlocked) {
-      for (const taskId of plan.taskOrder) {
-        const record = tasks[taskId];
-        if (record.state !== "blocked") continue;
-        if (canUnblockFromDependencies(record.blockers, tasks, knownTaskIds)) {
-          record.state = "todo";
-          record.blockers = [];
-        }
-      }
-    }
-
-    const status = {
-      project: plan.project,
-      schema_version: STATUS_SCHEMA_VERSION,
-      updated_at: new Date().toISOString(),
-      summary: summarizeTasks(tasks, plan.taskOrder),
-      tasks,
-      warnings,
-    };
-
-    STATUS_CONTEXT.set(status, {
-      db,
-      transactionOpened,
-      paths,
-      plan,
-    });
-
-    return status;
-  } catch (error) {
-    try {
-      if (transactionOpened) db.exec("ROLLBACK");
-    } catch {
-      // ignore
-    }
-    try {
-      db.close(false);
-    } catch {
-      // ignore
-    }
-    fail(error.message);
   }
+
+  const tasks = {};
+  const knownTaskIds = new Set(plan.taskOrder);
+  for (const taskId of plan.taskOrder) {
+    const record = normalizeTaskStatusRecord(rawTasks[taskId]);
+    if (resetInProgress && record.state === "in_progress") {
+      record.state = "todo";
+      record.owner = "";
+    }
+    tasks[taskId] = record;
+  }
+
+  if (reevaluateBlocked) {
+    for (const taskId of plan.taskOrder) {
+      const record = tasks[taskId];
+      if (record.state !== "blocked") continue;
+      if (canUnblockFromDependencies(record.blockers, tasks, knownTaskIds)) {
+        record.state = "todo";
+        record.blockers = [];
+      }
+    }
+  }
+
+  return {
+    project: plan.project,
+    schema_version: STATUS_SCHEMA_VERSION,
+    updated_at: new Date().toISOString(),
+    summary: summarizeTasks(tasks, plan.taskOrder),
+    tasks,
+    warnings,
+  };
 }
 
 function writeStatus(paths, status) {
-  const context = STATUS_CONTEXT.get(status);
-  const db = context?.db ?? openStateDb(paths);
-  const planTaskOrder = context?.plan?.taskOrder ?? Object.keys(status.tasks);
-  let transactionOpened = Boolean(context?.transactionOpened);
+  const snapshot = {
+    project: status.project,
+    schema_version: STATUS_SCHEMA_VERSION,
+    updated_at: status.updated_at,
+    summary: status.summary,
+    tasks: {},
+  };
 
-  try {
-    if (!transactionOpened) {
-      db.exec("BEGIN IMMEDIATE");
-      transactionOpened = true;
-    }
-
-    for (const taskId of planTaskOrder) {
-      const record = status.tasks[taskId] ?? defaultTaskStatus();
-      upsertTaskRecord(db, taskId, record);
-    }
-
-    db.query(
-      "INSERT INTO meta(key, value) VALUES ('project', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(status.project);
-    db.query(
-      "INSERT INTO meta(key, value) VALUES ('updated_at', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(status.updated_at);
-
-    db.exec("COMMIT");
-
-    const snapshot = {
-      project: status.project,
-      schema_version: STATUS_SCHEMA_VERSION,
-      updated_at: status.updated_at,
-      summary: status.summary,
-      tasks: {},
-    };
-    for (const taskId of planTaskOrder) {
-      snapshot.tasks[taskId] = status.tasks[taskId] ?? defaultTaskStatus();
-    }
-
-    fs.mkdirSync(path.dirname(paths.statusPath), { recursive: true });
-    fs.writeFileSync(paths.statusPath, `${JSON.stringify(snapshot, null, 2)}\n`);
-  } catch (error) {
-    try {
-      if (transactionOpened) db.exec("ROLLBACK");
-    } catch {
-      // ignore
-    }
-    fail(error.message);
-  } finally {
-    STATUS_CONTEXT.delete(status);
-    try {
-      db.close(false);
-    } catch {
-      // ignore
-    }
+  for (const [taskId, record] of Object.entries(status.tasks)) {
+    snapshot.tasks[taskId] = normalizeTaskStatusRecord(record);
   }
+
+  fs.mkdirSync(path.dirname(paths.statusPath), { recursive: true });
+  fs.writeFileSync(paths.statusPath, `${JSON.stringify(snapshot, null, 2)}\n`);
 }
 
 function taskIsUnblocked(task, status) {
@@ -933,7 +679,7 @@ Usage:
 
 Commands:
   init [title-slug]
-    Initialize/resume task.db, export task.status.json snapshot, and reset stale in_progress entries.
+    Initialize/resume task.status.json and reset stale in_progress entries.
 
   ready [title-slug]
     List unblocked todo tasks ready for dispatch.
@@ -980,14 +726,12 @@ function commandInit(paths, jsonMode) {
   const status = loadStatus(paths, plan, {
     resetInProgress: true,
     reevaluateBlocked: true,
-    forWrite: true,
   });
   writeStatus(paths, status);
 
   const output = {
     slug: paths.slug,
     plan_source: plan.source,
-    db_path: paths.dbPath,
     status_path: paths.statusPath,
     summary: status.summary,
     warnings: [...plan.warnings, ...status.warnings],
@@ -1011,7 +755,6 @@ function commandReady(paths, jsonMode) {
   const status = loadStatus(paths, plan, {
     resetInProgress: false,
     reevaluateBlocked: true,
-    forWrite: true,
   });
   writeStatus(paths, status);
   const ready = getReadyTaskIds(plan, status);
@@ -1047,7 +790,6 @@ function commandPrompt(paths, taskId, jsonMode) {
   const status = loadStatus(paths, plan, {
     resetInProgress: false,
     reevaluateBlocked: true,
-    forWrite: true,
   });
   writeStatus(paths, status);
 
@@ -1107,7 +849,6 @@ function commandStart(paths, taskId, owner, jsonMode) {
   const status = loadStatus(paths, plan, {
     resetInProgress: false,
     reevaluateBlocked: true,
-    forWrite: true,
   });
   const record = markTaskStarted(plan, status, taskId, owner);
 
@@ -1139,7 +880,6 @@ function commandDispatch(paths, taskId, owner, jsonMode) {
   const status = loadStatus(paths, plan, {
     resetInProgress: false,
     reevaluateBlocked: true,
-    forWrite: true,
   });
   const resolvedTaskId = resolveTaskForPrompt(plan, status, taskId);
   const delegation = buildDelegationPayload(plan, status, paths, resolvedTaskId);
@@ -1189,7 +929,6 @@ function commandComplete(paths, taskId, flags, jsonMode) {
   const status = loadStatus(paths, plan, {
     resetInProgress: false,
     reevaluateBlocked: true,
-    forWrite: true,
   });
   const task = plan.tasksById[taskId];
   if (!task) fail(`Unknown task: ${taskId}`);
@@ -1247,7 +986,6 @@ function commandStatus(paths, jsonMode) {
   const status = loadStatus(paths, plan, {
     resetInProgress: false,
     reevaluateBlocked: true,
-    forWrite: true,
   });
   writeStatus(paths, status);
   const ready = getReadyTaskIds(plan, status);
