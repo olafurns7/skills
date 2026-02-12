@@ -37,10 +37,10 @@ src/
 
 ## Install with skills.sh
 
-Install all skills from this repo:
+Install all skills from this repo (with interactive agent selection):
 
 ```bash
-npx skills add olafurns7/skills --all
+npx skills add olafurns7/skills --skill '*'
 ```
 
 List available skills from this repo:
