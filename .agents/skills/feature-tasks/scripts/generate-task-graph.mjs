@@ -6958,7 +6958,7 @@ var $visitAsync = visit.visitAsync;
 
 // src/generate-task-graph.ts
 var GRAPH_SCHEMA_VERSION = 3;
-var SUPPORTED_INPUT_VERSIONS = new Set([2, 3]);
+var SUPPORTED_INPUT_VERSIONS = new Set([3]);
 var PRIORITIES = new Set(["low", "medium", "high", "critical"]);
 var OWNER_TYPES = new Set(["frontend", "backend", "infra", "docs", "qa", "fullstack"]);
 var CONVENTIONAL_BRANCH_TYPES = new Set([
@@ -7089,7 +7089,7 @@ function parseTasksYaml(content) {
   const rawVersion = Number(document.version);
   const version = Number.isInteger(rawVersion) ? rawVersion : NaN;
   if (!SUPPORTED_INPUT_VERSIONS.has(version)) {
-    errors2.push(`version must be one of: ${Array.from(SUPPORTED_INPUT_VERSIONS).join(", ")}`);
+    errors2.push("version must be 3");
   }
   const project = parseRequiredString(document.project, "project", errors2);
   const rawTasks = document.tasks;

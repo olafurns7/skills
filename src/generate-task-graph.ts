@@ -4,7 +4,7 @@ import path from "node:path";
 import { parse as parseYaml } from "yaml";
 
 const GRAPH_SCHEMA_VERSION = 3;
-const SUPPORTED_INPUT_VERSIONS = new Set([2, 3]);
+const SUPPORTED_INPUT_VERSIONS = new Set([3]);
 const PRIORITIES = new Set(["low", "medium", "high", "critical"]);
 const OWNER_TYPES = new Set(["frontend", "backend", "infra", "docs", "qa", "fullstack"]);
 const CONVENTIONAL_BRANCH_TYPES = new Set([
@@ -149,7 +149,7 @@ function parseTasksYaml(content) {
   const rawVersion = Number(document.version);
   const version = Number.isInteger(rawVersion) ? rawVersion : NaN;
   if (!SUPPORTED_INPUT_VERSIONS.has(version)) {
-    errors.push(`version must be one of: ${Array.from(SUPPORTED_INPUT_VERSIONS).join(", ")}`);
+    errors.push("version must be 3");
   }
 
   const project = parseRequiredString(document.project, "project", errors);

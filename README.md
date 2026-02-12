@@ -7,7 +7,7 @@ This repository uses the open `.agents/skills` layout so it works with Codex, Cl
 ## Included skills
 
 - `feature-tasks`
-  - Builds or updates strict `tasks.yaml` schema v2
+  - Builds or updates strict `tasks.yaml` schema v3
   - Validates dependencies, references, and cycles
   - Generates deterministic `task.graph.json`
 - `feature-tasks-work`
@@ -96,7 +96,7 @@ Planning artifacts are stored per feature under:
 - `planning/<title-slug>/task.graph.json`
 - `planning/<title-slug>/task.status.json`
 
-`tasks.yaml` uses strict schema v2. `version` must be `2`.
+`tasks.yaml` uses strict schema v3. `version` must be `3`.
 
 Required task fields:
 
@@ -113,11 +113,12 @@ Required task fields:
 Optional task field:
 
 - `notes` (string)
+- `context` (array of strings)
 
 Example `tasks.yaml`:
 
 ```yaml
-version: 2
+version: 3
 project: my-project
 tasks:
   - id: TASK-001
@@ -132,6 +133,9 @@ tasks:
     owner_type: docs
     estimate: M
     notes: Optional context
+    context:
+      - src/payments/login.ts
+      - SPEC.md#login-flow
 critical_paths:
   - id: cp-main
     tasks: [TASK-001]
@@ -168,6 +172,8 @@ Prefer a CLI-first workflow (instead of manual edits to state artifacts):
 ```bash
 TASKCTL=".agents/skills/feature-tasks-work/scripts/taskctl"
 ```
+
+Always call `"$TASKCTL" ...` and do not assume `taskctl` is on `PATH`.
 
 Runtime selection in `scripts/taskctl`:
 

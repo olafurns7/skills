@@ -21,6 +21,9 @@ Set a command alias before orchestration:
 TASKCTL="<path-to-skill>/scripts/taskctl"
 ```
 
+Always execute the CLI via `"$TASKCTL" ...`.
+Do not assume `taskctl` is available on `PATH`.
+
 Runtime behavior:
 
 - `scripts/taskctl` runs `node taskctl.mjs` when Node.js is available.
